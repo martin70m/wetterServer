@@ -33,7 +33,7 @@ public class WetterTransfer {
 	private static final String AIR_TEMPERATURE_RECENT = "/climate_environment/CDC/observations_germany/climate/hourly/air_temperature/recent/";
 	private static final String FTP_CDC_DWD_DE = "opendata.dwd.de";
 
-	public static void start(boolean withDownload, String bundesland) {
+	public static void start(boolean withDownload, String bundesland, boolean justStationUpdate) {
 
 		int numberFiles = 0; 
 		long seconds = 0;
@@ -65,7 +65,7 @@ public class WetterTransfer {
 
 				conn.setAutoCommit(false);
 
-				saveData(stations, conn, path, bundesland);
+				saveData(stations, conn, path, bundesland, justStationUpdate);
 
 			}
 
@@ -75,11 +75,15 @@ public class WetterTransfer {
 
 	}
 
-	private static void saveData(List<String> stations, Connection conn, String path, String bundesland) throws SQLException {
+	private static void saveData(List<String> stations, Connection conn, String path, String bundesland, boolean justStationUpdate) throws SQLException {
 		for (String station : stations) {
 			// String[] data = station.split("\\s",20);
 			int stationID = updateStation(conn, station, bundesland);
 
+			if(justStationUpdate) {
+				System.out.println(station);
+				continue;
+			}
 			if (stationID > 0) {
 				String stationDirName = "0000" + stationID;
 				while (stationDirName.length() > 5)
@@ -123,6 +127,9 @@ public class WetterTransfer {
 				}
 			}
 		}
+
+		if(justStationUpdate)
+			conn.commit();
 	}
 
 	private static void saveTemperatures(Connection conn, List<String> temperatures, int alteStationsID, long maxDatum, int maxUhrzeit) throws SQLException {
