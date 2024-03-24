@@ -33,7 +33,7 @@ public class WetterTransfer {
 	private static final String AIR_TEMPERATURE_RECENT = "/climate_environment/CDC/observations_germany/climate/hourly/air_temperature/recent/";
 	private static final String FTP_CDC_DWD_DE = "opendata.dwd.de";
 
-	public static void start(boolean withDownload) {
+	public static void start(boolean withDownload, String bundesland) {
 
 		int numberFiles = 0; 
 		long seconds = 0;
@@ -58,115 +58,14 @@ public class WetterTransfer {
 		try {
 			MySqlConnection mySqlDB = new MySqlConnection();
 			try (final Connection conn = mySqlDB.getConnection()) {
+
+				conn.setAutoCommit(true);
 				if (withDownload)
 					saveStaticData(numberFiles, seconds, conn);
+
 				conn.setAutoCommit(false);
 
-				for (String station : stations) {
-					// String[] data = station.split("\\s",20);
-					int stationID = updateStation(conn, station);
-
-					String stationDirName = "0000" + stationID;
-					while (stationDirName.length() > 5)
-						stationDirName = stationDirName.substring(1, stationDirName.length());
-					String filename = WETTERDATEN.replace("[ID]", stationDirName);
-					String unzippedDir = path + "/" + stationDirName;
-					// create Directory for unzipping Files, if not exists
-					Path outDir = Paths.get(unzippedDir);
-					try {
-						Files.createDirectories(outDir);
-					} catch (FileAlreadyExistsException e4) {
-						//e4.printStackTrace();
-						//OK
-					} catch (IOException e3) {
-						//e3.printStackTrace();
-						//OK
-					}
-
-					int filecounter = ZipReader.upzip(path + "/" + filename, unzippedDir);
-					System.out.println(filename + " extraced to " + filecounter + " files.");
-					// produkt_tu_stunde
-					if (filecounter > 0) {
-						String filename1 = FileFinder.find("produkt_tu_stunde", unzippedDir);
-						File infile = new File(unzippedDir + "/" + filename1);
-						List<String> temperatures;
-						//temperatures = null;
-						try {
-							int alteStationsID = 0;
-							long maxDatum = 20170101;
-							int maxUhrzeit = 0;
-							temperatures = readDataFromFile(infile);
-
-							for (String temperature : temperatures) {
-
-								MesswertDTO messwert = new MesswertDTO();
-								List<String> data1 = Arrays.asList(temperature.split(";"));
-								messwert.setStationID(Integer.parseInt(data1.get(0).trim()));
-								if (alteStationsID != messwert.getStationID()) {
-									conn.commit();
-
-									try (final PreparedStatement prep3 = conn.prepareStatement(
-											"SELECT max(datum) as maxdatum, max(uhrzeit) as maxuhrzeit FROM Messwert WHERE stationid = ?;")) {
-										prep3.setInt(1, messwert.getStationID());
-										try (final ResultSet rs = prep3.executeQuery()) {
-											if (rs.next()) {
-												if (rs.getLong("maxdatum") != 0) {
-													maxDatum = rs.getLong("maxdatum");
-													maxUhrzeit = rs.getInt("maxuhrzeit");
-												}
-												alteStationsID = messwert.getStationID();
-											}
-										}
-
-									}
-								}
-								long datetime = Integer.parseInt(data1.get(1).trim());
-								messwert.setDate(datetime / 100);
-								long time = datetime - messwert.getDate() * 100;
-								messwert.setHour((int) time);
-
-								if (messwert.getDate() > maxDatum
-										|| messwert.getDate() == maxDatum && messwert.getHour() > maxUhrzeit) {
-									messwert.setTemperatur(data1.get(3).trim());
-									messwert.setHumidity(data1.get(4).trim());
-									// try (final PreparedStatement prep3 = conn.prepareStatement(
-									// "SELECT count(*) as anzahl FROM Messwert WHERE stationid = ? AND datum = ?
-									// and uhrzeit = ?;")) {
-									// prep3.setInt(1, messwert.getStationID());
-									// prep3.setLong(2, messwert.getDate());
-									// prep3.setInt(3, messwert.getHour());
-									// }
-
-									// try (final ResultSet rs = prep3.executeQuery()) {
-									// if (rs.next()) {
-									// if (rs.getLong("anzahl") == 0) {
-									try (final PreparedStatement prep2 = conn.prepareStatement(
-											"INSERT INTO Messwert (stationid, datum, uhrzeit, temperatur, luftfeuchte) VALUES (?,?,?,?,?);")) {
-										prep2.setInt(1, messwert.getStationID());
-										prep2.setLong(2, messwert.getDate());
-										prep2.setInt(3, messwert.getHour());
-										prep2.setString(4, messwert.getTemperatur());
-										prep2.setString(5, messwert.getHumidity());
-
-										prep2.execute();
-										System.out.println(temperature + " inserted to database");
-									}
-									// }
-									// }
-									// }
-
-								}
-
-							}
-							conn.commit();
-
-						} catch (IOException e) {
-							// TODO Auto-generated catch block
-							e.printStackTrace();
-						}
-
-					}
-				}
+				saveData(stations, conn, path, bundesland);
 
 			}
 
@@ -176,9 +75,124 @@ public class WetterTransfer {
 
 	}
 
-	private static int updateStation(final Connection conn, String station) throws SQLException {
-		int stationID;
+	private static void saveData(List<String> stations, Connection conn, String path, String bundesland) throws SQLException {
+		for (String station : stations) {
+			// String[] data = station.split("\\s",20);
+			int stationID = updateStation(conn, station, bundesland);
+
+			if (stationID > 0) {
+				String stationDirName = "0000" + stationID;
+				while (stationDirName.length() > 5)
+					stationDirName = stationDirName.substring(1, stationDirName.length());
+				String filename = WETTERDATEN.replace("[ID]", stationDirName);
+				String unzippedDir = path + "/" + stationDirName;
+				// create Directory for unzipping Files, if not exists
+				Path outDir = Paths.get(unzippedDir);
+				try {
+					Files.createDirectories(outDir);
+				} catch (FileAlreadyExistsException e4) {
+					//e4.printStackTrace();
+					//OK
+				} catch (IOException e3) {
+					//e3.printStackTrace();
+					//OK
+				}
+
+				int filecounter = ZipReader.upzip(path + "/" + filename, unzippedDir);
+				System.out.println(filename + " extraced to " + filecounter + " files.");
+				// produkt_tu_stunde
+				if (filecounter > 0) {
+					String filename1 = FileFinder.find("produkt_tu_stunde", unzippedDir);
+					File infile = new File(unzippedDir + "/" + filename1);
+					List<String> temperatures;
+					//temperatures = null;
+					try {
+						int alteStationsID = 0;
+						long maxDatum = 20170101;
+						int maxUhrzeit = 0;
+						temperatures = readDataFromFile(infile);
+
+						saveTemperatures(conn, temperatures, alteStationsID, maxDatum, maxUhrzeit);
+						conn.commit();
+
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+
+				}
+			}
+		}
+	}
+
+	private static void saveTemperatures(Connection conn, List<String> temperatures, int alteStationsID, long maxDatum, int maxUhrzeit) throws SQLException {
+		for (String temperature : temperatures) {
+
+			MesswertDTO messwert = new MesswertDTO();
+			List<String> data1 = Arrays.asList(temperature.split(";"));
+			messwert.setStationID(Integer.parseInt(data1.get(0).trim()));
+			if (alteStationsID != messwert.getStationID()) {
+				conn.commit();
+
+				try (final PreparedStatement prep3 = conn.prepareStatement(
+						"SELECT max(datum) as maxdatum, max(uhrzeit) as maxuhrzeit FROM Messwert WHERE stationid = ?;")) {
+					prep3.setInt(1, messwert.getStationID());
+					try (final ResultSet rs = prep3.executeQuery()) {
+						if (rs.next()) {
+							if (rs.getLong("maxdatum") != 0) {
+								maxDatum = rs.getLong("maxdatum");
+								maxUhrzeit = rs.getInt("maxuhrzeit");
+							}
+							alteStationsID = messwert.getStationID();
+						}
+					}
+
+				}
+			}
+			long datetime = Integer.parseInt(data1.get(1).trim());
+			messwert.setDate(datetime / 100);
+			long time = datetime - messwert.getDate() * 100;
+			messwert.setHour((int) time);
+
+			if (messwert.getDate() > maxDatum
+					|| messwert.getDate() == maxDatum && messwert.getHour() > maxUhrzeit) {
+				messwert.setTemperatur(data1.get(3).trim());
+				messwert.setHumidity(data1.get(4).trim());
+				// try (final PreparedStatement prep3 = conn.prepareStatement(
+				// "SELECT count(*) as anzahl FROM Messwert WHERE stationid = ? AND datum = ?
+				// and uhrzeit = ?;")) {
+				// prep3.setInt(1, messwert.getStationID());
+				// prep3.setLong(2, messwert.getDate());
+				// prep3.setInt(3, messwert.getHour());
+				// }
+
+				// try (final ResultSet rs = prep3.executeQuery()) {
+				// if (rs.next()) {
+				// if (rs.getLong("anzahl") == 0) {
+				try (final PreparedStatement prep2 = conn.prepareStatement(
+						"INSERT INTO Messwert (stationid, datum, uhrzeit, temperatur, luftfeuchte) VALUES (?,?,?,?,?);")) {
+					prep2.setInt(1, messwert.getStationID());
+					prep2.setLong(2, messwert.getDate());
+					prep2.setInt(3, messwert.getHour());
+					prep2.setString(4, messwert.getTemperatur());
+					prep2.setString(5, messwert.getHumidity());
+
+					prep2.execute();
+					System.out.println(temperature + " inserted to database");
+				}
+				// }
+				// }
+				// }
+
+			}
+
+		}
+	}
+
+	private static int updateStation(final Connection conn, String station, String bundesland) throws SQLException {
+		int stationID = 0;
 		StationDTO stationData = new StationDTO();
+		String stationName = "";
 		String[] data = Arrays.asList(station.split("[ ]")).stream().filter(str -> !str.isEmpty())
 				.collect(Collectors.toList()).toArray(new String[0]);
 		stationData.setID(Integer.parseInt(data[0]));
@@ -187,17 +201,21 @@ public class WetterTransfer {
 		stationData.setHeight(Integer.parseInt(data[3]));
 		stationData.setLatitude(data[4]);
 		stationData.setLongitude(data[5]);
-		stationData.setName(data[6]);
-		stationData.setLand(data[7]);
+		stationData.setLand(data[data.length-1]);
+		for(int i = 6; i<data.length-1; i++) {
+			stationName += data[i] + " ";
+		}
+		stationData.setName(stationName.trim());
 
-		stationID = stationData.getID();
+		if(bundesland.equals("") || bundesland.equals(stationData.getLand()))
+			stationID = stationData.getID();
 
 		PreparedStatement prep = conn.prepareStatement("SELECT * FROM Station WHERE id = ?;");
 		prep.setInt(1, stationData.getID());
 		try (final ResultSet rs = prep.executeQuery()) {
 			if (rs.next()) {
 
-				if (stationData.getBisDatum() != rs.getLong("bisDatum")) {
+				if (stationData.getBisDatum() != rs.getLong("bisDatum") && (bundesland.equals("") || bundesland.equals(stationData.getLand()))) {
 					try (final PreparedStatement prep1 = conn
 							.prepareStatement("UPDATE Station set bisDatum = ? WHERE id = ?;")) {
 						prep1.setLong(1, stationData.getBisDatum());
@@ -215,7 +233,10 @@ public class WetterTransfer {
 					prep2.setInt(1, stationData.getID());
 					prep2.setString(2, stationData.getName());
 					prep2.setLong(3, stationData.getVonDatum());
-					prep2.setLong(4, stationData.getBisDatum());
+					if(bundesland.equals("") || bundesland.equals(stationData.getLand()))
+						prep2.setLong(4, stationData.getBisDatum());
+					else
+						prep2.setLong(4, stationData.getVonDatum());
 					prep2.setString(5, stationData.getLatitude());
 					prep2.setString(6, stationData.getLongitude());
 					prep2.setInt(7, stationData.getHeight());
@@ -226,6 +247,7 @@ public class WetterTransfer {
 			}
 
 		}
+
 		return stationID;
 	}
 
