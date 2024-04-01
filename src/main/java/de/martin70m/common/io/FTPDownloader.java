@@ -67,7 +67,7 @@ public class FTPDownloader {
             OutputStream output;
          
             File outfile=new File(localDirectory + "/" + file.getName());
-            boolean newFile = outfile.createNewFile();
+            outfile.createNewFile();
 
             output = new FileOutputStream(outfile);
             //get the file from the remote system

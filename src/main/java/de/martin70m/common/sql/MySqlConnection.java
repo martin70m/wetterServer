@@ -40,7 +40,7 @@ public class MySqlConnection {
 				// if failed try on Unix-Systems
 				try {
 					String path = System.getProperty("user.home") + localPropertiesFileUnix;
-					stream = new BufferedInputStream(new FileInputStream(localPropertiesFileUnix));
+					stream = new BufferedInputStream(new FileInputStream(path));
 					try {
 						properties.load(stream);
 						stream.close();
